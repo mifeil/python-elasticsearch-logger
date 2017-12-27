@@ -37,6 +37,34 @@ class CMRESHandlerTestCase(unittest.TestCase):
         es_test_server_is_up = handler.test_es_source()
         self.assertEqual(True, es_test_server_is_up)
 
+    def test_new_index_has_messages(self):
+        index_name = "pythontest-index-messages"
+        handler = CMRESHandler(hosts=[{'host': self.getESHost(), 'port': self.getESPort()}],
+                               auth_type=CMRESHandler.AuthType.NO_AUTH,
+                               use_ssl=False,
+                               es_index_name=index_name,
+                               es_additional_fields={'App': 'Test', 'Environment': 'Dev'},
+                               raise_on_indexing_exceptions=True)
+
+        message = "Specific message %s"
+        es_test_server_is_up = handler.test_es_source()
+        index = handler._index_name_func.__func__(index_name)
+        client = handler._client
+        client.indices.delete(index, ignore=404)
+        self.log.info("ES services status is:  {0!s}".format(es_test_server_is_up))
+        self.assertEqual(True, es_test_server_is_up)
+        log = logging.getLogger("PythonTest")
+        log.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        log.info(message, 1)
+        log.info(message, 'str')
+        handler.flush()
+        self.assertEqual(0, len(handler._buffer))
+        # Wait a little while elasticsearch creating mapping and indexing messages
+        time.sleep(1)
+        self.assertEqual(2, client.search(index, body={"query": {"match": {'message': message}}})['hits']['total'])
+        handler.close()
+
     def test_buffered_log_insertion_flushed_when_buffer_full(self):
         handler = CMRESHandler(hosts=[{'host': self.getESHost(), 'port': self.getESPort()}],
                                auth_type=CMRESHandler.AuthType.NO_AUTH,
@@ -55,7 +83,7 @@ class CMRESHandlerTestCase(unittest.TestCase):
         log.setLevel(logging.DEBUG)
         log.addHandler(handler)
         log.warning("First Message")
-        log.info("Seccond Message")
+        log.info("Second Message")
         self.assertEqual(0, len(handler._buffer))
         handler.close()
 
